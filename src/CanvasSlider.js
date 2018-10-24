@@ -15,6 +15,7 @@ class CanvasSlider {
     if (!opts.el) throw new Error('the root element must be provided');
     this.el = opts.el;
     this.images = opts.images || [];
+    this.imagesLoaded = false;
     this.dpr = window.devicePixelRatio || 1;
     this.width = opts.width || window.innerWidth;
     this.height = opts.height || window.innerHeight;
@@ -41,8 +42,19 @@ class CanvasSlider {
       return loadImage(image.url).then(img => ({ image: img, index})).catch(() => null);
     });
     const result = await Promise.all(promises);
-    const loadedImages = result.filter(item => !!item);
-    
+    const loadedImages = result.filter(item => !!item).map(item => {
+      const { image, index } = item;
+      const srcItem = this.images[index];
+      return {
+        ...srcItem,
+        ratio: image.naturalWidth / image.naturalHeight,
+        width: image.naturalWidth,
+        height: image.naturalHeight,
+        image
+      };
+    });
+    this.loadImages = loadedImages;
+    this.imagesLoaded = true;
   }
 
   createCanvas() {
