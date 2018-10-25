@@ -1,5 +1,10 @@
 import React from 'react';
-import { loadImage } from 'utils';
+import ElementResizeDetector from 'element-resize-detector';
+import { loadImage, isMobile } from 'utils';
+
+const resizeDetector = ElementResizeDetector({
+  strategy: 'scroll'
+});
 
 /**
  * image item structure
@@ -20,7 +25,11 @@ class CanvasSlider {
     this.width = opts.width || window.innerWidth;
     this.height = opts.height || window.innerHeight;
     this.isRetina = this.dpr > 1;
+    this.isMobile = isMobile();
     this.activeItem = 0;
+    this.onEnterCanvas = opts.onEnterCanvas || null;
+    this.onLeaveCanvas = opts.onLeaveCanvas || null;
+    this.onResize = this.onResize.bind(this);
   }
 
   async init() {
@@ -29,12 +38,32 @@ class CanvasSlider {
     
   }
 
+  bindEvents() {
+    resizeDetector.listenTo(this.el, this.onResize);
+    if (!this.isMobile) {
+      this.onEnterCanvas && this.canvas.addEventListener('mouseenter', this.onEnterCanvas);
+      this.onLeaveCanvas && this.canvas.addEventListener('mouseleave', this.onLeaveCanvas);
+    }
+  }
+
+  unbindEvents() {
+    resizeDetector.removeListener(this.el, this.onResize);
+    if(!this.isMobile) {
+      this.onEnterCanvas && this.canvas.removeEventListener('mouseenter', this.onEnterCanvas);
+      this.onLeaveCanvas && this.canvas.removeEventListener('mouseleave', this.onLeaveCanvas);
+    }
+  }
+
   setDimensions(width, height) {
     // TODO: resize
   }
 
   setImages(images) {
     // TODO: reset
+  }
+
+  onResize(el) {
+
   }
 
   async loadImages() {
