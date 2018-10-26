@@ -1,4 +1,5 @@
 import React from 'react';
+import Hammer from 'hammerjs';
 import ElementResizeDetector from 'element-resize-detector';
 import { loadImage, isMobile } from 'utils';
 
@@ -8,12 +9,12 @@ const resizeDetector = ElementResizeDetector({
 
 /**
  * image item structure
- ```
-  { 
-    url: '', 
-    key: '' 
-  }
- ```
+```
+{ 
+  url: '', 
+  key: '' 
+}
+```
  */
 class CanvasSlider {
   constructor(opts) {
@@ -22,20 +23,19 @@ class CanvasSlider {
     this.images = opts.images || [];
     this.imagesLoaded = false;
     this.dpr = window.devicePixelRatio || 1;
-    this.width = opts.width || window.innerWidth;
-    this.height = opts.height || window.innerHeight;
     this.isRetina = this.dpr > 1;
     this.isMobile = isMobile();
     this.activeItem = 0;
     this.onEnterCanvas = opts.onEnterCanvas || null;
     this.onLeaveCanvas = opts.onLeaveCanvas || null;
     this.onResize = this.onResize.bind(this);
+    this.init();
   }
 
   async init() {
     this.createCanvas();
-    this.setCanvasSize();
-    
+    this.onResize(); // set initial size
+    this.bindEvents();
   }
 
   bindEvents() {
@@ -43,6 +43,12 @@ class CanvasSlider {
     if (!this.isMobile) {
       this.onEnterCanvas && this.canvas.addEventListener('mouseenter', this.onEnterCanvas);
       this.onLeaveCanvas && this.canvas.addEventListener('mouseleave', this.onLeaveCanvas);
+      this.canvas.addEventListener('mousedown', null);
+      this.canvas.addEventListener('mouseup', null);
+    } else {
+      this.sliderHammer = new Hammer(this.el);
+      this.sliderHammer.on("swiperight", this.previousItem);
+      this.sliderHammer.on("swipeleft", this.nextItem);
     }
   }
 
@@ -51,19 +57,29 @@ class CanvasSlider {
     if(!this.isMobile) {
       this.onEnterCanvas && this.canvas.removeEventListener('mouseenter', this.onEnterCanvas);
       this.onLeaveCanvas && this.canvas.removeEventListener('mouseleave', this.onLeaveCanvas);
+      this.canvas.removeEventListener('mousedown');
+      this.canvas.removeEventListener('mouseup');
+    } else {
+      this.sliderHammer.off('swiperight', this.previousItem);
+      this.sliderHammer.off('swipeleft', this.nextItem);
     }
   }
 
   setDimensions(width, height) {
     // TODO: resize
+    this.width = width;
+    this.height = height;
   }
 
   setImages(images) {
     // TODO: reset
   }
 
-  onResize(el) {
-
+  onResize() {
+    const offsetWidth = this.el.offsetWidth;
+    const offsetHeight = this.el.offsetHeight;
+    this.setDimensions(offsetWidth, offsetHeight);
+    this.setCanvasSize();
   }
 
   async loadImages() {
@@ -104,6 +120,14 @@ class CanvasSlider {
     // display size
     canvas.style.width = `${this.width}px`;
     canvas.style.height = `${this.height}px`;
+  }
+
+  nextItem() {
+
+  }
+
+  previousItem() {
+
   }
 }
 
