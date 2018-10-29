@@ -26,9 +26,16 @@ class CanvasSlider {
     this.isRetina = this.dpr > 1;
     this.isMobile = isMobile();
     this.activeItem = 0;
+    this.isMouseDown = false;
+    this.frameId = null;
     this.onEnterCanvas = opts.onEnterCanvas || null;
     this.onLeaveCanvas = opts.onLeaveCanvas || null;
     this.onResize = this.onResize.bind(this);
+    this.previousItem = this.previousItem.bind(this);
+    this.nextItem = this.nextItem.bind(this);
+    this.moveImageBackward = this.moveImageBackward.bind(this);
+    this.moveImageForward = this.moveImageForward.bind(this);
+    this.render = this.render.bind(this);
     this.init();
   }
 
@@ -36,6 +43,7 @@ class CanvasSlider {
     this.createCanvas();
     this.onResize(); // set initial size
     this.bindEvents();
+    await this.loadImages();
   }
 
   bindEvents() {
@@ -43,8 +51,8 @@ class CanvasSlider {
     if (!this.isMobile) {
       this.onEnterCanvas && this.canvas.addEventListener('mouseenter', this.onEnterCanvas);
       this.onLeaveCanvas && this.canvas.addEventListener('mouseleave', this.onLeaveCanvas);
-      this.canvas.addEventListener('mousedown', null);
-      this.canvas.addEventListener('mouseup', null);
+      this.canvas.addEventListener('mousedown', this.moveImageBackward);
+      this.canvas.addEventListener('mouseup', this.moveImageForward);
     } else {
       this.sliderHammer = new Hammer(this.el);
       this.sliderHammer.on("swiperight", this.previousItem);
@@ -57,8 +65,8 @@ class CanvasSlider {
     if(!this.isMobile) {
       this.onEnterCanvas && this.canvas.removeEventListener('mouseenter', this.onEnterCanvas);
       this.onLeaveCanvas && this.canvas.removeEventListener('mouseleave', this.onLeaveCanvas);
-      this.canvas.removeEventListener('mousedown');
-      this.canvas.removeEventListener('mouseup');
+      this.canvas.removeEventListener('mousedown', this.moveImageBackward);
+      this.canvas.removeEventListener('mouseup', this.moveImageForward);
     } else {
       this.sliderHammer.off('swiperight', this.previousItem);
       this.sliderHammer.off('swipeleft', this.nextItem);
@@ -129,21 +137,49 @@ class CanvasSlider {
   previousItem() {
 
   }
+
+  moveImageForward() {
+    this.isMouseDown = false;
+  }
+
+  moveImageBackward() {
+    this.isMouseDown = true;
+  }
+
+  startDraw() {
+    this.frameId = requestAnimationFrame(this.render);
+  }
+
+  stopDraw() {
+    if (this.frameId != null) cancelAnimationFrame(this.frameId);
+  }
+
+  render() {
+    
+    this.frameId = requestAnimationFrame(this.render);
+  }
+
 }
 
 class CanvasSliderComp extends React.Component {
   constructor(props) {
     super(props);
-    this.state = {
-      images: [],
-      loadedImages: [],
-    };
+  }
+
+  componentDidMount() {
+    this.slider = new CanvasSlider({
+      el: this.root,
+      images: [
+        { url: '', key: '' },
+
+      ]
+    });
   }
 
   render() {
     return (
-      <div>
-        <canvas ref={e => { this.canvas = e; }}></canvas>
+      <div ref={e => { this.root = e; }}>
+        
       </div>
     )
   }
