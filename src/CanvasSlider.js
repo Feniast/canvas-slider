@@ -1,31 +1,34 @@
 import React from 'react';
 import Hammer from 'hammerjs';
 import ElementResizeDetector from 'element-resize-detector';
-import { loadImage, isMobile } from 'utils';
+import { loadImage, isMobile } from './utils';
 
 const resizeDetector = ElementResizeDetector({
   strategy: 'scroll'
 });
 
+const track = (origin, target, speed) => {
+  return origin + (target - origin) * speed;
+}
+
 class CanvasSlider {
   static defaultPreset = {
     minScale: 0.5,
-    maxScale = 1,
+    maxScale: 1,
     movingScale: 0.5,
-    minClip = 0,
-    maxClip = .15,
-    minAlpha = 0,
-    maxAlpha = 1,
-    minPan = -.05,
-    maxPan = 1.05,
+    minClip: 0,
+    maxClip: .15,
+    minAlpha: 0,
+    maxAlpha: 1,
+    minPan: -.05,
+    maxPan: 1.05,
     maxImageStretch: 500,
     alphaSpeed: 0.25,
     scaleSpeed: 0.1,
     clipSpeed: 0.05,
     panSpeed: 0.07,
     dragSpeedFactor: 0.06,
-    horizontalSpacerFactor: 0.6,
-    scrollingScaleOffset: 1
+    horizontalSpacerFactor: 0.6
   }
 
   static presets = [
@@ -67,9 +70,6 @@ class CanvasSlider {
     this.dpr = window.devicePixelRatio || 1;
     this.isRetina = this.dpr > 1;
     this.isMobile = isMobile();
-    this.activeItem = 0;
-    this.isMouseDown = false;
-    this.frameId = null;
     this.onEnterCanvas = opts.onEnterCanvas || null;
     this.onLeaveCanvas = opts.onLeaveCanvas || null;
     this.onResize = this.onResize.bind(this);
@@ -78,14 +78,68 @@ class CanvasSlider {
     this.moveImageBackward = this.moveImageBackward.bind(this);
     this.moveImageForward = this.moveImageForward.bind(this);
     this.render = this.render.bind(this);
+    this.setImageSize = this.setImageSize.bind(this);
+    this.setImagePosition = this.setImagePosition.bind(this);
     this.init();
   }
 
   async init() {
+    const offsetWidth = this.el.offsetWidth;
+    const offsetHeight = this.el.offsetHeight;
+    this.setDimensions(offsetWidth, offsetHeight);
+    this.initPresets();
     this.createCanvas();
-    this.onResize(); // set initial size
+    this.setCanvasSize();
     this.bindEvents();
     await this.loadImages();
+    this.initVariables(); // do this after image load because some variables depend on item count
+  }
+
+  get horizontalSpacer() {
+    return this.width * this.horizontalSpacerFactor;
+  }
+
+  get maxXOffset() {
+    return (this.itemCount - 1) * this.horizontalSpacer;
+  }
+
+  get itemCount() {
+    return this.loadedImages.length;
+  }
+
+  initPresets() {
+    const width = this.width;
+    const height = this.height;
+    const defaultPreset = CanvasSlider.defaultPreset;
+    const presets = CanvasSlider.presets;
+    const usedPresets = presets.filter((preset) => {
+      return preset.predicate({
+        width,
+        height
+      });
+    }).map(preset => preset.settings);
+    const currentPreset = Object.assign({}, defaultPreset, ...usedPresets);
+    const presetKeys = Object.keys(currentPreset);
+    for (let key of presetKeys) {
+      this[key] = currentPreset[key];
+    }
+  }
+
+  initVariables() {
+    this.frameId = null;
+    this.activeItem = 0;
+    this.isMouseDown = false;
+    this.mouseStart = [0, 0];
+    this.mouseCurrent = this.mouseStart;
+    this.direction = 0;
+    this.stretchX = 0;
+    this.stretchXOffset = 0;
+    this.speed = 0;
+    this.currentXOffset = this.horizontalSpacer * this.activeItem;
+    this.actualXOffset = this.currentXOffset;
+    this.newDecimal = 0;
+    this.trackingDecimal = 1 / (this.itemCount - 1) * this.activeItem;
+    this.endDecimal = this.trackingDecimal;
   }
 
   bindEvents() {
@@ -116,7 +170,6 @@ class CanvasSlider {
   }
 
   setDimensions(width, height) {
-    // TODO: resize
     this.width = width;
     this.height = height;
   }
@@ -129,7 +182,9 @@ class CanvasSlider {
     const offsetWidth = this.el.offsetWidth;
     const offsetHeight = this.el.offsetHeight;
     this.setDimensions(offsetWidth, offsetHeight);
+    this.initPresets();
     this.setCanvasSize();
+    this.iterateImage(this.setImageSize, this.setImagePosition);
   }
 
   async loadImages() {
@@ -172,30 +227,33 @@ class CanvasSlider {
     canvas.style.height = `${this.height}px`;
   }
 
-  setImageSizes() {
-    const remainingSpacing = this.isRetina ? 200 : 126;
-    this.loadedImages.forEach(image => {
-      const xGap = this.width - image.width;
-      const yGap = this.height - image.height;
-      const ratio = image.ratio;
-      if (xGap < yGap) {
-        const w = this.width - remainingSpacing;
-        image.xSize = w;
-        image.ySize = w / ratio;
-      } else {
-        const h = this.height - remainingSpacing;
-        image.xSize = h * ratio;
-        image.ySize = h;
-      }
-    });
+  iterateImage(operations = []) {
+    if (this.loadedImages && this.loadedImages.length > 0 && operations && operations.length > 0) {
+      this.loadedImages.forEach((image, idx) => {
+        operations.forEach(image, idx);
+      });
+    }
   }
 
-  setImageScales() {
-    this.loadedImages.forEach((image, idx) => {
-      if (this.activeItem === idx) {
-        image.xScale = 
-      }
-    })
+  setImageSize(image) {
+    const remainingSpacing = this.isRetina ? 200 : 126;
+    const xGap = this.width - image.width;
+    const yGap = this.height - image.height;
+    const ratio = image.ratio;
+    if (xGap < yGap) {
+      const w = this.width - remainingSpacing;
+      image.sizeX = w;
+      image.sizeY = w / ratio;
+    } else {
+      const h = this.height - remainingSpacing;
+      image.sizeX = h * ratio;
+      image.sizeY = h;
+    }
+  }
+
+  setImagePosition(image, idx) {
+    image.posX = this.horizontalSpacer * idx;
+    image.posY = this.height / 2;
   }
 
   nextItem() {
@@ -214,6 +272,38 @@ class CanvasSlider {
     this.isMouseDown = true;
   }
 
+  initDraw() {
+    const initImageProps = (image, idx) => {
+      const scale = idx === this.activeItem ? this.maxScale : this.minScale;
+      image.scaleX = scale;
+      image.scaleY = scale;
+      image.clipX = this.maxClip;
+      image.clipY = this.maxClip;
+      image.alpha = idx === this.activeItem ? this.maxAlpha : this.minAlpha;
+    }
+
+    const initImageTargetProps = (image, idx) => {
+      const scale = this.activeItem === idx ? this.maxScale : this.minScale;
+      const clip = this.activeItem === idx ? this.minClip : this.maxClip;
+      const alpha = this.activeItem === idx ? this.maxAlpha : this.minAlpha;
+      image.targetScaleX = scale;
+      image.targetScaleY = scale;
+      image.targetClipX = clip;
+      image.targetClipY = clip;
+      image.targetAlpha = alpha;
+    }
+
+    this.iterateImage(
+      this.setImageSize,
+      this.setImagePosition,
+      initImageProps,
+      initImageTargetProps
+    );
+
+    this.drawImages();
+    this.startDraw();
+  }
+
   startDraw() {
     this.frameId = requestAnimationFrame(this.render);
   }
@@ -225,6 +315,27 @@ class CanvasSlider {
   render() {
     
     this.frameId = requestAnimationFrame(this.render);
+  }
+
+  drawImages() {
+    const canvas = this.canvas;
+    const ctx = this.ctx;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const halfWidth = this.width / 2;
+    this.loadedImages.forEach((img, idx) => {
+      const { width, height, sizeX, sizeY, clipX, clipY, scaleX, scaleY, posX, posY, alpha, image: imageEl } = img;
+      const sx = width * clipX / 2;
+      const sy = height * clipY / 2;
+      const sWidth = width - width * clipX;
+      const sHeight = height - height * clipY;
+      const dWidth = sizeX * scaleX + this.stretchX;
+      const dHeight = sizeY * scaleY;
+      const dx = posX + halfWidth - (dWidth / 2 + (this.actualXOffset + this.stretchXOffset));
+      const dy = posY - dHeight / 2;
+      ctx.globalAlpha = alpha;
+      ctx.drawImage(imageEl, sx, sy, sWidth, sHeight, dx, dy, dWidth, dHeight);
+      ctx.globalAlpha = 1;
+    });
   }
 
 }
