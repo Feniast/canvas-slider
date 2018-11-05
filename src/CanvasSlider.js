@@ -12,56 +12,6 @@ const track = (origin, target, speed) => {
 }
 
 class CanvasSlider {
-  static defaultPreset = {
-    minScale: 0.5,
-    maxScale: 1,
-    movingScale: 0.5,
-    minClip: 0,
-    maxClip: .15,
-    minAlpha: 0,
-    maxAlpha: 1,
-    minPan: -.05,
-    maxPan: 1.05,
-    maxImageStretch: 500,
-    alphaSpeed: 0.25,
-    scaleSpeed: 0.1,
-    clipSpeed: 0.05,
-    panSpeed: 0.07,
-    dragSpeedFactor: 0.06,
-    horizontalSpacerFactor: 0.6
-  }
-
-  static presets = [
-    {
-      predicate: ({ width, height }) => {
-        return width < 768;
-      },
-      settings: {
-        minScale: 0.8,
-        movingScale: 0.8,
-        maxImageStretch: 200,
-        scaleSpeed: 0.2,
-        clipSpeed: 0.2,
-        panSpeed: 0.15,
-        dragSpeedFactor: 0.15
-      }
-    },
-    {
-      predicate: ({ width, height }) => {
-        return width >= 768;
-      },
-      settings: {
-        minScale: 0.5,
-        movingScale: 0.5,
-        maxImageStretch: 500,
-        scaleSpeed: 0.1,
-        clipSpeed: 0.05,
-        panSpeed: 0.07,
-        dragSpeedFactor: 0.06
-      }
-    }
-  ]
-
   constructor(opts) {
     if (!opts.el) throw new Error('the root element must be provided');
     this.el = opts.el;
@@ -93,6 +43,7 @@ class CanvasSlider {
     this.bindEvents();
     await this.loadImages();
     this.initVariables(); // do this after image load because some variables depend on item count
+    this.initDraw();
   }
 
   get horizontalSpacer() {
@@ -227,10 +178,10 @@ class CanvasSlider {
     canvas.style.height = `${this.height}px`;
   }
 
-  iterateImage(operations = []) {
+  iterateImage(...operations) {
     if (this.loadedImages && this.loadedImages.length > 0 && operations && operations.length > 0) {
       this.loadedImages.forEach((image, idx) => {
-        operations.forEach(image, idx);
+        operations.forEach(op => op(image, idx));
       });
     }
   }
@@ -266,10 +217,30 @@ class CanvasSlider {
 
   moveImageForward() {
     this.isMouseDown = false;
+    const activeItem = this.activeItem;
+    this.iterateImage((image, idx) => {
+      const active = idx === activeItem;
+      const scale = active ? this.maxScale : this.minScale;
+      image.targetScaleX = scale;
+      image.targetScaleY = scale;
+      const clip = active ? this.minClip : this.maxClip; 
+      image.targetClipX = clip;
+      image.targetClipY = clip;
+      const alpha = active ? this.maxAlpha : this.minAlpha;
+      image.targetAlpha = alpha; 
+    });
   }
 
-  moveImageBackward() {
+  moveImageBackward(event) {
     this.isMouseDown = true;
+    this.mouseStart = event.clientX;
+    this.iterateImage((image) => {
+      image.targetScaleX = this.movingScale;
+      image.targetScaleY = this.movingScale;
+      image.targetClipX = this.maxClip;
+      image.targetClipY = this.maxClip;
+      image.targetAlpha = this.maxAlpha;
+    });
   }
 
   initDraw() {
@@ -313,7 +284,22 @@ class CanvasSlider {
   }
 
   render() {
-    
+    // update
+    this.iterateImage((image) => {
+      image.scaleX = track(image.scaleX, image.targetScaleX, this.scaleSpeed);
+      image.scaleY = track(image.scaleY, image.targetScaleY, this.scaleSpeed);
+      image.clipX = track(image.clipX, image.targetClipX, this.clipSpeed);
+      image.clipY = track(image.clipY, image.targetClipY, this.clipSpeed);
+      image.alpha = track(image.alpha, image.targetAlpha, this.alphaSpeed);
+    });
+    this.speed += ((this.currentXOffset - this.actualXOffset) / this.maxXOffset - this.speed) * this.dragSpeedFactor;
+    this.speed = Math.round(1e3 * this.speed) / 1e3;
+    const absSpeed = Math.abs(this.speed);
+    this.stretchX = this.maxImageStretch * absSpeed;
+    this.stretchXOffset = this.speed < 0 ? this.maxImageStretch * absSpeed * 2 : 0;
+    this.actualXOffset = track(this.actualXOffset, this.currentXOffset, this.panSpeed);
+    this.drawImages();
+    console.log(this.loadedImages);
     this.frameId = requestAnimationFrame(this.render);
   }
 
@@ -340,6 +326,56 @@ class CanvasSlider {
 
 }
 
+CanvasSlider.defaultPreset = {
+  minScale: 0.5,
+  maxScale: 1,
+  movingScale: 0.5,
+  minClip: 0,
+  maxClip: .15,
+  minAlpha: 0,
+  maxAlpha: 1,
+  minPan: -.05,
+  maxPan: 1.05,
+  maxImageStretch: 500,
+  alphaSpeed: 0.25,
+  scaleSpeed: 0.1,
+  clipSpeed: 0.05,
+  panSpeed: 0.07,
+  dragSpeedFactor: 0.06,
+  horizontalSpacerFactor: 0.6
+};
+
+CanvasSlider.presets = [
+  {
+    predicate: ({ width, height }) => {
+      return width < 768;
+    },
+    settings: {
+      minScale: 0.8,
+      movingScale: 0.8,
+      maxImageStretch: 200,
+      scaleSpeed: 0.2,
+      clipSpeed: 0.2,
+      panSpeed: 0.15,
+      dragSpeedFactor: 0.15
+    }
+  },
+  {
+    predicate: ({ width, height }) => {
+      return width >= 768;
+    },
+    settings: {
+      minScale: 0.5,
+      movingScale: 0.5,
+      maxImageStretch: 500,
+      scaleSpeed: 0.1,
+      clipSpeed: 0.05,
+      panSpeed: 0.07,
+      dragSpeedFactor: 0.06
+    }
+  }
+];
+
 class CanvasSliderComp extends React.Component {
   constructor(props) {
     super(props);
@@ -349,17 +385,35 @@ class CanvasSliderComp extends React.Component {
     this.slider = new CanvasSlider({
       el: this.root,
       images: [
-        { url: '', key: '' },
-
+        {
+          url:
+            'https://images.unsplash.com/photo-1541377391972-03ee2fe4c4a5?ixlib=rb-0.3.5&ixid=eyJhcHBfaWQiOjEyMDd9&s=35f68ce5dac07e2d9e20717fb706dd30&auto=format&fit=crop&w=1350&q=80'
+        },
+        {
+          url:
+            'https://images.unsplash.com/photo-1541376220621-8a3ff17fb218?ixlib=rb-0.3.5&ixid=eyJhcHBfaWQiOjEyMDd9&s=38ff172a5db361a50d24da3f45b84de4&auto=format&fit=crop&w=1950&q=80'
+        },
+        {
+          url:
+            'https://images.unsplash.com/photo-1541336032412-2048a678540d?ixlib=rb-0.3.5&ixid=eyJhcHBfaWQiOjEyMDd9&s=81b62ce76c10acae2862c79b7f3da11a&auto=format&fit=crop&w=634&q=80'
+        },
+        {
+          url:
+            'https://images.unsplash.com/photo-1541345503026-4356ccc6589e?ixlib=rb-0.3.5&ixid=eyJhcHBfaWQiOjEyMDd9&s=8497f239c1ca1f16461a10068e6431d1&auto=format&fit=crop&w=1350&q=80'
+        },
+        {
+          url:
+            'https://images.unsplash.com/photo-1541368662189-53371b6682bb?ixlib=rb-0.3.5&ixid=eyJhcHBfaWQiOjEyMDd9&s=5d745ae846bfb8e9f8c1651c8ef84b77&auto=format&fit=crop&w=628&q=80'
+        }
       ]
     });
   }
 
   render() {
     return (
-      <div ref={e => { this.root = e; }}>
-        
-      </div>
+      <div ref={e => { this.root = e; }} style={{ height: '100vh' }}></div>
     )
   }
 }
+
+export default CanvasSliderComp;

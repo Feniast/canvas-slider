@@ -2,9 +2,11 @@ import React from 'react';
 import ReactDOM from 'react-dom';
 import './index.css';
 
+import CanvasSlider from './CanvasSlider';
+
 const App = () => (
   <div className="App">
-    <h1 className="App-Title">Hello Parcel x React</h1>
+    <CanvasSlider></CanvasSlider>
   </div>
 );
 
