@@ -7,8 +7,21 @@ const resizeDetector = ElementResizeDetector({
   strategy: 'scroll'
 });
 
-const track = (origin, target, speed) => {
+const track = (origin, target, speed, minGap = 1e-3) => {
+  const gap = Math.abs(target - origin);
+  if (gap < minGap) {
+    return target;
+  }
   return origin + (target - origin) * speed;
+}
+
+const clamp = (v, min, max) => {
+  if (min > max) {
+    ([max, min] = [min, max]);
+  }
+  if (v < min) return min;
+  if (v > max) return max;
+  return v;
 }
 
 class CanvasSlider {
@@ -22,11 +35,15 @@ class CanvasSlider {
     this.isMobile = isMobile();
     this.onEnterCanvas = opts.onEnterCanvas || null;
     this.onLeaveCanvas = opts.onLeaveCanvas || null;
+    this.onMoveLeft = opts.onMoveLeft || null;
+    this.onMoveRight = opts.onMoveRight || null;
+    this.onStopMove = opts.onStopMove || null;
     this.onResize = this.onResize.bind(this);
     this.previousItem = this.previousItem.bind(this);
     this.nextItem = this.nextItem.bind(this);
     this.moveImageBackward = this.moveImageBackward.bind(this);
     this.moveImageForward = this.moveImageForward.bind(this);
+    this.mouseMove = this.mouseMove.bind(this);
     this.render = this.render.bind(this);
     this.setImageSize = this.setImageSize.bind(this);
     this.setImagePosition = this.setImagePosition.bind(this);
@@ -40,8 +57,8 @@ class CanvasSlider {
     this.initPresets();
     this.createCanvas();
     this.setCanvasSize();
-    this.bindEvents();
     await this.loadImages();
+    this.bindEvents();
     this.initVariables(); // do this after image load because some variables depend on item count
     this.initDraw();
   }
@@ -81,7 +98,6 @@ class CanvasSlider {
     this.activeItem = 0;
     this.isMouseDown = false;
     this.mouseStart = [0, 0];
-    this.mouseCurrent = this.mouseStart;
     this.direction = 0;
     this.stretchX = 0;
     this.stretchXOffset = 0;
@@ -100,6 +116,7 @@ class CanvasSlider {
       this.onLeaveCanvas && this.canvas.addEventListener('mouseleave', this.onLeaveCanvas);
       this.canvas.addEventListener('mousedown', this.moveImageBackward);
       this.canvas.addEventListener('mouseup', this.moveImageForward);
+      this.canvas.addEventListener('mousemove', this.mouseMove);
     } else {
       this.sliderHammer = new Hammer(this.el);
       this.sliderHammer.on("swiperight", this.previousItem);
@@ -114,6 +131,7 @@ class CanvasSlider {
       this.onLeaveCanvas && this.canvas.removeEventListener('mouseleave', this.onLeaveCanvas);
       this.canvas.removeEventListener('mousedown', this.moveImageBackward);
       this.canvas.removeEventListener('mouseup', this.moveImageForward);
+      this.canvas.removeEventListener('mousemove', this.mouseMove);
     } else {
       this.sliderHammer.off('swiperight', this.previousItem);
       this.sliderHammer.off('swipeleft', this.nextItem);
@@ -217,9 +235,15 @@ class CanvasSlider {
 
   moveImageForward() {
     this.isMouseDown = false;
-    const activeItem = this.activeItem;
+    this.activeItem = Math.round(this.trackingDecimal * (this.itemCount - 1));
+    this.endDecimal = this.activeItem / (this.itemCount - 1);
+    this.currentXOffset = this.endDecimal * this.maxXOffset;
+    this.direction = 0;
+    if (this.onStopMove) {
+      this.onStopMove();
+    }
     this.iterateImage((image, idx) => {
-      const active = idx === activeItem;
+      const active = idx === this.activeItem;
       const scale = active ? this.maxScale : this.minScale;
       image.targetScaleX = scale;
       image.targetScaleY = scale;
@@ -241,6 +265,21 @@ class CanvasSlider {
       image.targetClipY = this.maxClip;
       image.targetAlpha = this.maxAlpha;
     });
+  }
+
+  mouseMove(event) {
+    if (!this.isMouseDown) return;
+    const mouseMoveDistance = event.clientX - this.mouseStart;
+    const pointer = this.endDecimal - mouseMoveDistance / (this.width / 2);
+    if (pointer > this.trackingDecimal && this.direction !== -1) {
+      this.direction = -1;
+      this.onMoveLeft && this.onMoveLeft();
+    } else if (pointer < this.trackingDecimal && this.direction !== 1) {
+      this.direction = 1;
+      this.onMoveRight && this.onMoveRight();
+    }
+    this.trackingDecimal = clamp(pointer, this.minPan, this.maxPan);
+    this.currentXOffset = this.maxXOffset * this.trackingDecimal;
   }
 
   initDraw() {
@@ -295,11 +334,10 @@ class CanvasSlider {
     this.speed += ((this.currentXOffset - this.actualXOffset) / this.maxXOffset - this.speed) * this.dragSpeedFactor;
     this.speed = Math.round(1e3 * this.speed) / 1e3;
     const absSpeed = Math.abs(this.speed);
-    this.stretchX = this.maxImageStretch * absSpeed;
-    this.stretchXOffset = this.speed < 0 ? this.maxImageStretch * absSpeed * 2 : 0;
+    this.stretchX = clamp(absSpeed, 0, this.maxStretch);
+    this.stretchXOffset = this.speed < 0 ? this.stretchX * 2 : 0;
     this.actualXOffset = track(this.actualXOffset, this.currentXOffset, this.panSpeed);
     this.drawImages();
-    console.log(this.loadedImages);
     this.frameId = requestAnimationFrame(this.render);
   }
 
@@ -307,6 +345,8 @@ class CanvasSlider {
     const canvas = this.canvas;
     const ctx = this.ctx;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.save();
+    ctx.scale(this.dpr, this.dpr);
     const halfWidth = this.width / 2;
     this.loadedImages.forEach((img, idx) => {
       const { width, height, sizeX, sizeY, clipX, clipY, scaleX, scaleY, posX, posY, alpha, image: imageEl } = img;
@@ -314,14 +354,15 @@ class CanvasSlider {
       const sy = height * clipY / 2;
       const sWidth = width - width * clipX;
       const sHeight = height - height * clipY;
-      const dWidth = sizeX * scaleX + this.stretchX;
+      const dWidth = (sizeX * scaleX) * (1 + this.stretchX);
       const dHeight = sizeY * scaleY;
-      const dx = posX + halfWidth - (dWidth / 2 + (this.actualXOffset + this.stretchXOffset));
+      const dx = posX + halfWidth - (dWidth / 2 + (this.actualXOffset + dWidth * this.stretchXOffset));
       const dy = posY - dHeight / 2;
       ctx.globalAlpha = alpha;
       ctx.drawImage(imageEl, sx, sy, sWidth, sHeight, dx, dy, dWidth, dHeight);
       ctx.globalAlpha = 1;
     });
+    ctx.restore();
   }
 
 }
@@ -336,7 +377,7 @@ CanvasSlider.defaultPreset = {
   maxAlpha: 1,
   minPan: -.05,
   maxPan: 1.05,
-  maxImageStretch: 500,
+  maxStretch: 0.25,
   alphaSpeed: 0.25,
   scaleSpeed: 0.1,
   clipSpeed: 0.05,
@@ -353,7 +394,6 @@ CanvasSlider.presets = [
     settings: {
       minScale: 0.8,
       movingScale: 0.8,
-      maxImageStretch: 200,
       scaleSpeed: 0.2,
       clipSpeed: 0.2,
       panSpeed: 0.15,
@@ -367,7 +407,6 @@ CanvasSlider.presets = [
     settings: {
       minScale: 0.5,
       movingScale: 0.5,
-      maxImageStretch: 500,
       scaleSpeed: 0.1,
       clipSpeed: 0.05,
       panSpeed: 0.07,
