@@ -9,7 +9,7 @@ const resizeDetector = ElementResizeDetector({
 
 const track = (origin, target, speed, minGap = 1e-3) => {
   const gap = Math.abs(target - origin);
-  if (gap < minGap) {
+  if (gap <= minGap) {
     return target;
   }
   return origin + (target - origin) * speed;
@@ -37,7 +37,10 @@ class CanvasSlider {
     this.onLeaveCanvas = opts.onLeaveCanvas || null;
     this.onMoveLeft = opts.onMoveLeft || null;
     this.onMoveRight = opts.onMoveRight || null;
+    this.onStartMove = opts.onStartMove || null;
     this.onStopMove = opts.onStopMove || null;
+    this.beforeItemChange = opts.beforeItemChange || null;
+    this.afterItemChange = opts.afterItemChange || null;
     this.onResize = this.onResize.bind(this);
     this.previousItem = this.previousItem.bind(this);
     this.nextItem = this.nextItem.bind(this);
@@ -63,6 +66,13 @@ class CanvasSlider {
     this.initDraw();
   }
 
+  destroy() {
+    this.stopDraw();
+    this.unbindEvents();
+    this.loadedImages = null;
+    this.el.removeChild(this.canvas);
+  }
+
   get horizontalSpacer() {
     return this.width * this.horizontalSpacerFactor;
   }
@@ -72,6 +82,7 @@ class CanvasSlider {
   }
 
   get itemCount() {
+    if (!this.loadedImages) return 0;
     return this.loadedImages.length;
   }
 
@@ -81,6 +92,7 @@ class CanvasSlider {
     const defaultPreset = CanvasSlider.defaultPreset;
     const presets = CanvasSlider.presets;
     const usedPresets = presets.filter((preset) => {
+      if (!preset || !preset.predicate) return false;
       return preset.predicate({
         width,
         height
@@ -97,14 +109,13 @@ class CanvasSlider {
     this.frameId = null;
     this.activeItem = 0;
     this.isMouseDown = false;
-    this.mouseStart = [0, 0];
+    this.mouseStart = 0;
     this.direction = 0;
     this.stretchX = 0;
     this.stretchXOffset = 0;
     this.speed = 0;
     this.currentXOffset = this.horizontalSpacer * this.activeItem;
     this.actualXOffset = this.currentXOffset;
-    this.newDecimal = 0;
     this.trackingDecimal = 1 / (this.itemCount - 1) * this.activeItem;
     this.endDecimal = this.trackingDecimal;
   }
@@ -226,11 +237,32 @@ class CanvasSlider {
   }
 
   nextItem() {
-
+    if (this.activeItem >= this.itemCount - 1) return false;
+    this.beforeItemChange && this.beforeItemChange(this.activeItem, this.activeItem + 1);
+    this.activeItem++;
+    this.onItemChange();
   }
 
   previousItem() {
+    if (this.activeItem <= 0) return false;
+    this.beforeItemChange && this.beforeItemChange(this.activeItem, this.activeItem - 1);
+    this.activeItem--;
+    this.onItemChange();
+  }
 
+  onItemChange() {
+    this.endDecimal = this.activeItem / (this.itemCount - 1);
+    this.trackingDecimal = this.endDecimal;
+    this.currentXOffset = this.endDecimal * this.maxXOffset;
+    this.itemChanged = true;
+    this.iterateImage((image, idx) => {
+      const active = idx === this.activeItem;
+      const scale = active ? this.maxScale : this.minScale;
+      image.targetScaleX = scale;
+      image.targetScaleY = scale;
+      const alpha = active ? this.maxAlpha : this.minAlpha;
+      image.targetAlpha = alpha;
+    });
   }
 
   moveImageForward() {
@@ -239,9 +271,7 @@ class CanvasSlider {
     this.endDecimal = this.activeItem / (this.itemCount - 1);
     this.currentXOffset = this.endDecimal * this.maxXOffset;
     this.direction = 0;
-    if (this.onStopMove) {
-      this.onStopMove();
-    }
+    this.onStopMove && this.onStopMove(this.activeItem);
     this.iterateImage((image, idx) => {
       const active = idx === this.activeItem;
       const scale = active ? this.maxScale : this.minScale;
@@ -258,6 +288,7 @@ class CanvasSlider {
   moveImageBackward(event) {
     this.isMouseDown = true;
     this.mouseStart = event.clientX;
+    this.onStartMove = this.onStartMove(this.activeItem);
     this.iterateImage((image) => {
       image.targetScaleX = this.movingScale;
       image.targetScaleY = this.movingScale;
@@ -336,7 +367,11 @@ class CanvasSlider {
     const absSpeed = Math.abs(this.speed);
     this.stretchX = clamp(absSpeed, 0, this.maxStretch);
     this.stretchXOffset = this.speed < 0 ? this.stretchX * 2 : 0;
-    this.actualXOffset = track(this.actualXOffset, this.currentXOffset, this.panSpeed);
+    this.actualXOffset = track(this.actualXOffset, this.currentXOffset, this.panSpeed, 0.1);
+    if (this.actualXOffset === this.currentXOffset && this.itemChanged) {
+      this.itemChanged = false;
+      this.afterItemChange && this.afterItemChange(this.activeItem);
+    }
     this.drawImages();
     this.frameId = requestAnimationFrame(this.render);
   }
@@ -444,7 +479,13 @@ class CanvasSliderComp extends React.Component {
           url:
             'https://images.unsplash.com/photo-1541368662189-53371b6682bb?ixlib=rb-0.3.5&ixid=eyJhcHBfaWQiOjEyMDd9&s=5d745ae846bfb8e9f8c1651c8ef84b77&auto=format&fit=crop&w=628&q=80'
         }
-      ]
+      ],
+      beforeItemChange(prev, next) {
+        console.log(prev, next);
+      },
+      afterItemChange(curr) {
+        console.log(curr);
+      }
     });
   }
 
